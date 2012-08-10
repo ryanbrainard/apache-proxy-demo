@@ -44,10 +44,8 @@ if (!is_array(parse_url($_ENV['REDISTOGO_URL'], PHP_URL_PASS))) {
 
 // send for async processing
 if (isset($_REQUEST['asyncValue'])) {
-    $asyncReq = array();
-    $asyncReq["SESSION_ID"] = session_id();
-    $asyncReq["_REQUEST"] = $_REQUEST;
-
+    $asyncReq['asyncValue'] = $_REQUEST['asyncValue'];
+    
     $r->rpush("ASYNC_QUEUE", serialize($asyncReq));
 }
 
@@ -74,6 +72,7 @@ if (isset($_REQUEST['asyncValue'])) {
 <p>Hit counter: <?php echo $r->incr('hit_counter'); ?></p>
 
 <h3>Asynchronously</h3>
+<p>Submit a value and watch it output in logs by worker dyno:</p>
 <form method="post" action="">
   Value: <input name="asyncValue" />
   <input type="submit" value="Enqueue"/>
@@ -81,7 +80,7 @@ if (isset($_REQUEST['asyncValue'])) {
 
 <h2>Scalability and Relatibity</h2>
 <p>Try scaling out the web processes so there are multiple Apaches running. Notice how this the Redis-backed sessions and data are unaffected.</p>
-<pre>heroku scale web=2</pre>
+<pre>heroku scale web=2 worker=2</pre>
 
 </body>
 </html>
