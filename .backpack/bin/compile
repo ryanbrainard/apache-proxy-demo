@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir>
+
+# fail fast
+set -e
+
+# config
+BIN_DIR=$(dirname $0)
+BUILD_DIR=$1
+CACHE_DIR=$2
+LP_DIR=`cd $(dirname $0); cd ..; pwd`
+
+SOURCE_PATH="src"
+TARGET_PATH="target"
+PUBLIC_HTML_PATH="$TARGET_PATH/public_html"
+PRIVATE_PATH="$TARGET_PATH/private"
+
+APACHE_VERSION="2.2.22"
+APACHE_PATH="apache"
+PHP_VERSION="5.3.15"
+PHP_PATH="php"
+PHING_VERSION="2.4.6"
+PHING_PATH="phing"
+EXT_PATH="extensions"
+REDIS_VERSION="2.2.1"
+REDIS_EXT="$EXT_PATH/redis.so"
+
+# include .files when moving things around
+shopt -s dotglob
+
+cd $BUILD_DIR
+
+# move everything pushed into source sub-directory
+mkdir -p $CACHE_DIR/$SOURCE_PATH
+mv * $CACHE_DIR/$SOURCE_PATH
+mv $CACHE_DIR/$SOURCE_PATH .
+
+# keep Procfile
+if [ -f $SOURCE_PATH/Procfile ]; then
+  mv $SOURCE_PATH/Procfile .
+fi
+
+APACHE_URL="https://s3.amazonaws.com/rbrainard-public/apache-$APACHE_VERSION-proxy.tar.gz"
+#APACHE_URL="https://s3.amazonaws.com/php-lp/apache-$APACHE_VERSION.tar.gz"
+echo "-----> Bundling Apache v$APACHE_VERSION"
+curl --silent --max-time 60 --location $APACHE_URL | tar xz
+
+PHP_URL="https://s3.amazonaws.com/rbrainard-public/php-$PHP_VERSION.tar.gz"
+echo "-----> Bundling PHP v$PHP_VERSION"
+curl --silent --max-time 60 --location $PHP_URL | tar xz
+
+mkdir -p $PHING_PATH
+PHING_URL="http://www.phing.info/get/phing-$PHING_VERSION.tgz"
+echo "-----> Bundling Phing v$PHING_VERSION"
+curl --silent --max-time 60 --location $PHING_URL | tar xz -C $PHING_PATH
+
+mkdir -p $(dirname $REDIS_EXT)
+REDIS_EXT_URL="https://s3.amazonaws.com/rbrainard-public/redis-$REDIS_VERSION.so"
+echo "-----> Bundling Redis extension $REDIS_VERSION"
+curl --silent --max-time 60 --location $REDIS_EXT_URL > $REDIS_EXT
+
+#clean the cache
+rm -rf $CACHE_DIR
+
+# update config files
+cp $LP_DIR/conf/httpd.conf $APACHE_PATH/conf
+cp $LP_DIR/conf/php.ini $PHP_PATH
+
+# make php available on bin
+mkdir -p bin
+ln -s /app/php/bin/php bin/php
+
+# create the release script
+cat >>boot.sh <<EOF
+for var in \`env|cut -f1 -d=\`; do
+  echo "PassEnv \$var" >> /app/apache/conf/httpd.conf;
+done
+touch /app/apache/logs/error_log
+touch /app/apache/logs/access_log
+touch /app/$TARGET_PATH/app.log
+tail -F /app/apache/logs/error_log &
+tail -F /app/apache/logs/access_log &
+tail -F /app/$TARGET_PATH/app.log &
+export LD_LIBRARY_PATH=/app/php/ext
+export PHP_INI_SCAN_DIR=/app/$PUBLIC_HTML_PATH
+export PUBLIC_HTML_DIR=/app/$PUBLIC_HTML_PATH
+export PRIVATE_DIR=/app/$PRIVATE_PATH
+echo "Launching apache"
+exec /app/apache/bin/httpd -DNO_DETACH
+EOF
+
+chmod +x boot.sh
+
+# do the phing thing
+export PHP_COMMAND="$BUILD_DIR/$PHP_PATH/bin/php"
+export PHING_HOME="$BUILD_DIR/$PHING_PATH"
+export PHP_CLASSPATH="$PHING_HOME/classes"
+export LD_LIBRARY_PATH="$BUILD_DIR/$PHP_PATH/ext"
+export PUBLIC_HTML_DIR="$BUILD_DIR/$PUBLIC_HTML_PATH"
+export PRIVATE_DIR="$BUILD_DIR/$PRIVATE_PATH"
+mkdir -p $PUBLIC_HTML_DIR
+mkdir -p $PRIVATE_DIR
+cd $BUILD_DIR/$SOURCE_PATH
+$BUILD_DIR/$PHING_PATH/bin/phing stage
