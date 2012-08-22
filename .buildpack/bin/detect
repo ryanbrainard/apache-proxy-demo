@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-if [ -f $1/build.xml ] && grep -q "target.*name=[\'|\"]stage[\'|\"]" $1/build.xml ; then
-  echo "Phing" && exit 0
-else
-  echo "no" && exit 1
-fi

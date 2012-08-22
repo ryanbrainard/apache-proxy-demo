@@ -1,2 +1,0 @@
-ProxyPass /google http://google.com
-ProxyPassReverse /google http://google.com
